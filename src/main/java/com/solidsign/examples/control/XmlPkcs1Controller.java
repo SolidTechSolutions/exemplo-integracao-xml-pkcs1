@@ -12,6 +12,8 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 import java.util.Map;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * [EN]    REST controller for two-step XAdES (XML) signing using PKCS#1 (external private key).
@@ -60,6 +62,39 @@ public class XmlPkcs1Controller {
             @RequestParam Map<String, String> allParams) {
         LOGGER.info("XML PKCS1 finalization request. finalNonce={}", allParams.get("finalNonce"));
         SignResponse response = service.finalizeSignature(allParams);
+        return response != null
+                ? ResponseEntity.ok(response)
+                : ResponseEntity.internalServerError().build();
+    }
+
+    /**
+     * [EN]    Step 1 form variant for React — XAdES PKCS#1. properties ignored.
+     * [PT-BR] Variante de formulário passo 1 para React — XAdES PKCS#1. properties ignorado.
+     * [ES]    Variante de formulario paso 1 para React — XAdES PKCS#1. properties ignorado.
+     */
+    @CrossOrigin
+    @PostMapping("/prepare/form")
+    public ResponseEntity<PreparedHashesResponse> prepareForm(
+            @RequestParam("document") MultipartFile[] documents,
+            @RequestParam Map<String, String> allParams
+    ) throws IOException {
+        LOGGER.info("XML PKCS1 form preparation for {} doc(s).", documents.length);
+        PreparedHashesResponse response = service.prepareForm(new java.util.HashMap<>(allParams), documents);
+        return response != null
+                ? ResponseEntity.ok(response)
+                : ResponseEntity.internalServerError().build();
+    }
+
+    /**
+     * [EN]    Step 2 form variant for React — XAdES PKCS#1. properties ignored.
+     * [PT-BR] Variante de formulário passo 2 para React — XAdES PKCS#1. properties ignorado.
+     * [ES]    Variante de formulario paso 2 para React — XAdES PKCS#1. properties ignorado.
+     */
+    @CrossOrigin
+    @PostMapping("/finalize/form")
+    public ResponseEntity<SignResponse> finalizeForm(@RequestParam Map<String, String> allParams) {
+        LOGGER.info("XML PKCS1 form finalization. finalNonce={}", allParams.get("finalNonce"));
+        SignResponse response = service.finalizeForm(new java.util.HashMap<>(allParams));
         return response != null
                 ? ResponseEntity.ok(response)
                 : ResponseEntity.internalServerError().build();

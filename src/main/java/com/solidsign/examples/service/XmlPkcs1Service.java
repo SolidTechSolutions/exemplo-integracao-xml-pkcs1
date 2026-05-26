@@ -84,11 +84,35 @@ public class XmlPkcs1Service {
     @Value("${solidsign.sig.signatureNodeNamespace}")
     private String signatureNodeNamespace;
 
-    // [EN]    XML canonicalization algorithm URI
-    // [PT-BR] URI do algoritmo de canonicalização XML
-    // [ES]    URI del algoritmo de canonicalización XML
+    // [EN]    Canonicalization algorithm name (INCLUSIVE, EXCLUSIVE, INCLUSIVE_WITH_COMMENTS, EXCLUSIVE_WITH_COMMENTS)
+    // [PT-BR] Nome do algoritmo de canonicalização (INCLUSIVE, EXCLUSIVE, INCLUSIVE_WITH_COMMENTS, EXCLUSIVE_WITH_COMMENTS)
+    // [ES]    Nombre del algoritmo de canonicalización (INCLUSIVE, EXCLUSIVE, INCLUSIVE_WITH_COMMENTS, EXCLUSIVE_WITH_COMMENTS)
     @Value("${solidsign.sig.canonicalizationMethod}")
     private String canonicalizationMethod;
+
+    // [EN]    Remove XPath exclusion filter from the signed document (false recommended for standard use)
+    // [PT-BR] Remover filtro de exclusão XPath do documento assinado (false recomendado para uso padrão)
+    // [ES]    Eliminar filtro de exclusión XPath del documento firmado (false recomendado para uso estándar)
+    @Value("${solidsign.sig.isRemoveXPathExclusionFilter}")
+    private String isRemoveXPathExclusionFilter;
+
+    // [EN]    Remove namespace prefix from node names before signing (false recommended for standard use)
+    // [PT-BR] Remover prefixo de namespace dos nomes de nó antes de assinar (false recomendado para uso padrão)
+    // [ES]    Eliminar prefijo de namespace de los nombres de nodo antes de firmar (false recomendado para uso estándar)
+    @Value("${solidsign.sig.isRemoveNamespacePrefixFromNodeNames}")
+    private String isRemoveNamespacePrefixFromNodeNames;
+
+    // [EN]    Include KeyInfo element in the signature (false recommended for standard use)
+    // [PT-BR] Incluir elemento KeyInfo na assinatura (false recomendado para uso padrão)
+    // [ES]    Incluir elemento KeyInfo en la firma (false recomendado para uso estándar)
+    @Value("${solidsign.sig.isSignKeyInfo}")
+    private String isSignKeyInfo;
+
+    // [EN]    Optional: ID of the specific XML node to sign (leave blank to sign by name/namespace only)
+    // [PT-BR] Opcional: ID do nó XML específico a assinar (deixe em branco para assinar apenas por nome/namespace)
+    // [ES]    Opcional: ID del nodo XML específico a firmar (deje en blanco para firmar solo por nombre/namespace)
+    // @Value("${solidsign.sig.signatureNodeId:}")
+    // private String signatureNodeId;
 
     // [EN]    PEM body of the signer's public certificate (no BEGIN/END headers, no private key)
     // [PT-BR] Corpo PEM do certificado público do assinante (sem marcadores BEGIN/END, sem chave privada)
@@ -130,6 +154,18 @@ public class XmlPkcs1Service {
         body.add("signatureNodeName",      signatureNodeName);
         body.add("signatureNodeNamespace", signatureNodeNamespace);
         body.add("canonicalizationMethod", canonicalizationMethod);
+
+        // [EN]    Optional: per-document node ID (uncomment if targeting a specific node by ID)
+        // [PT-BR] Opcional: ID do nó por documento (descomente se for assinar um nó específico por ID)
+        // [ES]    Opcional: ID del nodo por documento (descomente para firmar un nodo específico por ID)
+        // body.add("signatureNodeId", signatureNodeId);
+
+        // [EN]    XPath filter and namespace prefix options
+        // [PT-BR] Opções de filtro XPath e prefixo de namespace
+        // [ES]    Opciones de filtro XPath y prefijo de namespace
+        body.add("isRemoveXPathExclusionFilter",        isRemoveXPathExclusionFilter);
+        body.add("isRemoveNamespacePrefixFromNodeNames", isRemoveNamespacePrefixFromNodeNames);
+        body.add("isSignKeyInfo",                        isSignKeyInfo);
         // [EN]    Signer's certificate PEM body (no headers) — required by SolidSign to embed it in the signature
         // [PT-BR] Corpo PEM do certificado do assinante (sem marcadores) — obrigatório para SolidSign embutir na assinatura
         // [ES]    Cuerpo PEM del certificado del firmante (sin marcadores) — requerido por SolidSign para incluirlo en la firma
@@ -184,6 +220,98 @@ public class XmlPkcs1Service {
             LOGGER.error("SolidSign final error {}: {}", e.getStatusCode(), e.getResponseBodyAsString());
         } catch (Exception e) {
             LOGGER.error("Unexpected error during XML finalization: {}", e.getMessage(), e);
+        }
+        return null;
+    }
+
+    // ─── Form endpoints (all params from request, properties ignored) ─────────
+
+    /**
+     * [EN]    Step 1 form variant for XAdES PKCS#1 — all config from caller.
+     * [PT-BR] Variante de formulário do passo 1 para XAdES PKCS#1 — toda config do chamador.
+     * [ES]    Variante de formulario del paso 1 para XAdES PKCS#1 — toda config del llamador.
+     */
+    public PreparedHashesResponse prepareForm(Map<String, String> params,
+                                              MultipartFile[] documents) throws IOException {
+        String auth       = params.getOrDefault("authorization", "");
+        String apiBaseUrl = params.getOrDefault("baseUrl", "");
+        String profile    = params.get("profile");
+        String hashAlg    = params.get("hashAlgorithm");
+        String packaging  = params.get("signaturePackaging");
+        String policy     = params.get("policyVersion");
+        String cert       = params.get("certificate");
+        String nodeName   = params.get("signatureNodeName");
+        String nodeNs     = params.get("signatureNodeNamespace");
+        String canon      = params.get("canonicalizationMethod");
+        String rmXPath    = params.get("isRemoveXPathExclusionFilter");
+        String rmNs       = params.get("isRemoveNamespacePrefixFromNodeNames");
+        String signKeyInfo = params.get("isSignKeyInfo");
+        String nodeId     = params.get("signatureNodeId");
+
+        String prepUrl = apiBaseUrl + "/solidsign/dsig/xml/pkcs1/sign-preparation";
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.MULTIPART_FORM_DATA);
+        headers.set("Authorization", auth);
+        MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
+        for (int i = 0; i < documents.length; i++) {
+            final byte[] bytes = documents[i].getBytes();
+            final String name  = documents[i].getOriginalFilename();
+            body.add("document[" + i + "]", new ByteArrayResource(bytes) {
+                @Override public String getFilename() { return name; }
+            });
+        }
+        if (profile   != null && !profile.isBlank())   body.add("profile",            profile);
+        if (hashAlg   != null && !hashAlg.isBlank())   body.add("hashAlgorithm",      hashAlg);
+        if (packaging != null && !packaging.isBlank()) body.add("signaturePackaging", packaging);
+        if (policy    != null && !policy.isBlank())    body.add("policyVersion",      policy);
+        if (nodeName  != null && !nodeName.isBlank())  body.add("signatureNodeName",  nodeName);
+        if (nodeNs    != null && !nodeNs.isBlank())    body.add("signatureNodeNamespace", nodeNs);
+        if (canon     != null && !canon.isBlank())     body.add("canonicalizationMethod", canon);
+        if (nodeId    != null && !nodeId.isBlank())    body.add("signatureNodeId",    nodeId);
+        if (rmXPath   != null) body.add("isRemoveXPathExclusionFilter",        rmXPath);
+        if (rmNs      != null) body.add("isRemoveNamespacePrefixFromNodeNames", rmNs);
+        if (signKeyInfo != null) body.add("isSignKeyInfo",                     signKeyInfo);
+        if (cert      != null && !cert.isBlank())      body.add("certificate",        cert);
+        try {
+            ResponseEntity<PreparedHashesResponse> resp = restTemplate.postForEntity(
+                    prepUrl, new HttpEntity<>(body, headers), PreparedHashesResponse.class);
+            if (resp.getStatusCode() == HttpStatus.OK) {
+                LOGGER.info("XML PKCS1 form preparation OK. finalNonce={}", resp.getBody().finalNonce);
+                return resp.getBody();
+            }
+        } catch (HttpStatusCodeException e) {
+            LOGGER.error("SolidSign prep form error {}: {}", e.getStatusCode(), e.getResponseBodyAsString());
+        } catch (Exception e) {
+            LOGGER.error("Unexpected error in XML PKCS1 form preparation: {}", e.getMessage(), e);
+        }
+        return null;
+    }
+
+    /**
+     * [EN]    Step 2 form variant for XAdES PKCS#1 — auth and baseUrl from allParams map.
+     * [PT-BR] Variante de formulário do passo 2 para XAdES PKCS#1 — auth e baseUrl do map allParams.
+     * [ES]    Variante de formulario del paso 2 para XAdES PKCS#1 — auth y baseUrl del map allParams.
+     */
+    public SignResponse finalizeForm(Map<String, String> allParams) {
+        String auth       = allParams.remove("authorization");
+        String apiBaseUrl = allParams.remove("baseUrl");
+        String finalUrl   = apiBaseUrl + "/solidsign/dsig/xml/pkcs1/sign-finalization";
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.MULTIPART_FORM_DATA);
+        headers.set("Authorization", auth);
+        MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
+        allParams.forEach(body::add);
+        try {
+            ResponseEntity<SignResponse> resp = restTemplate.postForEntity(
+                    finalUrl, new HttpEntity<>(body, headers), SignResponse.class);
+            if (resp.getStatusCode() == HttpStatus.OK) {
+                LOGGER.info("XML PKCS1 form finalization OK.");
+                return resp.getBody();
+            }
+        } catch (HttpStatusCodeException e) {
+            LOGGER.error("SolidSign final form error {}: {}", e.getStatusCode(), e.getResponseBodyAsString());
+        } catch (Exception e) {
+            LOGGER.error("Unexpected error in XML PKCS1 form finalization: {}", e.getMessage(), e);
         }
         return null;
     }
